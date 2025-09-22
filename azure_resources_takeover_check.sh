@@ -7,7 +7,6 @@ if [[ $# -lt 1 ]]; then
 fi
 
 INPUT_FILE="$1"
-LOCATION="westus"
 
 echo "Checking availability of Azure domains..."
 while read -r fqdn; do
@@ -28,28 +27,23 @@ while read -r fqdn; do
             --query available -o tsv 2>/dev/null)
 
     elif [[ "$fqdn" == *.azurewebsites.net ]]; then
-        result=$(az webapp list --query "[?defaultHostName=='$fqdn']" -o tsv 2>/dev/null)
-        if [[ -z "$result" ]]; then
-            available="true"
-        else
-            available="false"
-        fi
+        label="${fqdn%%.azurewebsites.net}"
+        available=$(az rest --method post \
+            --url "https://management.azure.com/subscriptions/$(az account show --query id -o tsv)/providers/Microsoft.Web/checkNameAvailability?api-version=2022-03-01" \
+            --body "{ \"name\": \"$label\", \"type\": \"Microsoft.Web/sites\" }" \
+            --query nameAvailable -o tsv 2>/dev/null)
 
     elif [[ "$fqdn" == *.azurefd.net ]]; then
-        result=$(az network front-door check-custom-domain --host-name "$fqdn" 2>/dev/null)
-        if echo "$result" | grep -q '"customDomainValidated": true'; then
-            available="false"
-        else
-            available="true"
-        fi
+        label="${fqdn%%.azurefd.net}"
+        available=$(az network front-door check-dns-availability \
+            --name "$label" \
+            --query nameAvailable -o tsv 2>/dev/null)
 
     elif [[ "$fqdn" == *.azure-api.net ]]; then
-        result=$(az apim list --query "[?gatewayUrl=='https://$fqdn']" -o tsv 2>/dev/null)
-        if [[ -z "$result" ]]; then
-            available="true"
-        else
-            available="false"
-        fi
+        label="${fqdn%%.azure-api.net}"
+        available=$(az apim check-name-availability \
+            --name "$label" \
+            --query nameAvailable -o tsv 2>/dev/null)
 
     else
         echo "Skipping unsupported domain: $fqdn"
